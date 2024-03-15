@@ -13,9 +13,12 @@ from homeassistant.components.climate import (
     )
 from homeassistant.const import (
     ATTR_ENTITY_ID,
-    ATTR_TEMPERATURE,
+    ATTR_TARGET_TEMP_HIGH,
+    ATTR_TARGET_TEMP_LOW,
+    ATTR_HVAC_ACTION,
     CONF_NAME,
     EVENT_HOMEASSISTANT_START,
+    SERVICE_FAN_MODE,
     SERVICE_TURN_OFF,
     SERVICE_TURN_ON,
     STATE_ON,
@@ -41,12 +44,15 @@ from .const import (
 )
 from .config_schema import(
     CLIMATE_SCHEMA,
-    CONF_HEATER,
-    CONF_COOLER,
+    CONF_HEATER_HIGH,
+    CONF_HEATER_LOW,
+    CONF_COOLER_HIGH,
+    CONF_COOLER_LOW,
     CONF_SENSOR,
     CONF_MIN_TEMP,
     CONF_MAX_TEMP,
-    CONF_TARGET,
+    CONF_TARGET_HIGH,
+    CONF_TARGET_LOW,
     CONF_TOLERANCE,
     CONF_INITIAL_HVAC_MODE,
     CONF_RELATED_CLIMATE,
@@ -92,14 +98,17 @@ class ProgrammableThermostat(ClimateEntity, RestoreEntity):
         """Initialize the thermostat."""
         self.hass = hass
         self._name = config.get(CONF_NAME)
-        self.heaters_entity_ids = self._getEntityList(config.get(CONF_HEATER))
-        self.coolers_entity_ids = self._getEntityList(config.get(CONF_COOLER))
+        self.heaters_high_entity_ids = self._getEntityList(config.get(CONF_HEATER_HIGH))
+        self.heaters_low_entity_ids = self._getEntityList(config.get(CONF_HEATER_LOW))
+        self.coolers_high_entity_ids = self._getEntityList(config.get(CONF_COOLER_HIGH))
+        self.coolers_low_entity_ids = self._getEntityList(config.get(CONF_COOLER_LOW))
         self.sensor_entity_id = config.get(CONF_SENSOR)
         self._tolerance = config.get(CONF_TOLERANCE)
         self._min_temp = config.get(CONF_MIN_TEMP)
         self._max_temp = config.get(CONF_MAX_TEMP)
         self._initial_hvac_mode = config.get(CONF_INITIAL_HVAC_MODE)
-        self.target_entity_id = config.get(CONF_TARGET)
+        self.target_temp_high_entity_id = config.get(CONF_TARGET_HIGH)
+        self.target_temp_low_entity_id = config.get(CONF_TARGET_LOW)
         self._unit = hass.config.units.temperature_unit
         self._related_climate = self._getEntityList(config.get(CONF_RELATED_CLIMATE))
         self._hvac_options = config.get(CONF_HVAC_OPTIONS)
@@ -108,9 +117,11 @@ class ProgrammableThermostat(ClimateEntity, RestoreEntity):
         self.min_cycle_duration = config.get(CONF_MIN_CYCLE_DURATION)
         if type(self.min_cycle_duration) == type({}):
             self.min_cycle_duration = dict_to_timedelta(self.min_cycle_duration)
-        self._target_temp = self._getFloat(self._getStateSafe(self.target_entity_id), None)
-        self._restore_temp = self._target_temp
-        self._cur_temp = self._getFloat(self._getStateSafe(self.sensor_entity_id), self._target_temp)
+        self._target_temp_high = self._getFloat(self._getStateSafe(self.target_temp_high_entity_id), None)
+        self._target_temp_low = self._getFloat(self._getStateSafe(self.target_temp_low_entity_id), None)
+        self._restore_high_temp = self._target_temp_high
+        self._restore_low_temp = self._target_temp_low
+        self._cur_temp = self._getFloat(self._getStateSafe(self.sensor_entity_id), self._target_temp_high)
         self._active = False
         self._temp_lock = asyncio.Lock()
         self._hvac_action = HVACAction.OFF
@@ -119,13 +130,17 @@ class ProgrammableThermostat(ClimateEntity, RestoreEntity):
         options = "{0:b}".format(self._hvac_options).zfill(3)[::-1]
         if options[0] == "1":
             self._hvac_list.append(HVACMode.OFF)
-        if self.heaters_entity_ids is not None and options[1] == "1":
+        if self.heaters_high_entity_ids is not None and options[1] == "1":
             self._hvac_list.append(HVACMode.HEAT)
-        if self.coolers_entity_ids is not None and options[1] == "1":
+        if self.heaters_low_entity_ids is not None and options[1] == "1":
+            self._hvac_list.append(HVACMode.HEAT)
+        if self.coolers_high_entity_ids is not None and options[1] == "1":
             self._hvac_list.append(HVACMode.COOL)
-        if (self.heaters_entity_ids != None or self.coolers_entity_ids != None) and  options[2] == "1":
+        if self.coolers_low_entity_ids is not None and options[1] == "1":
+            self._hvac_list.append(HVACMode.COOL)
+        if (self.heaters_high_entity_ids != None or self.heaters_low_entity_ids != None or self.coolers_high_entity_ids != None or self.coolers_low_entity_ids != None) and  options[2] == "1":
             self._hvac_list.append(HVACMode.HEAT_COOL)
-        if self.heaters_entity_ids == None and self.coolers_entity_ids == None:
+        if self.heaters_high_entity_ids == None and self.heaters_low_entity_ids == None and self.coolers_high_entity_ids == None and self.coolers_low_entity_ids == None:
             _LOGGER.error("ERROR on climate.%s, you have to define at least one between heater and cooler", self._name)
         if not self._hvac_list:
             self._hvac_list.append(HVACMode.OFF)
@@ -142,7 +157,7 @@ class ProgrammableThermostat(ClimateEntity, RestoreEntity):
         self._support_flags = SUPPORT_FLAGS
 
         """ Check if heaters and coolers are the same """
-        if self.heaters_entity_ids == self.coolers_entity_ids:
+        if self.heater_high_entity_ids == self.coolers_high_entity_ids:
             self._are_entities_same = True
         else:
             self._are_entities_same = False
@@ -157,15 +172,18 @@ class ProgrammableThermostat(ClimateEntity, RestoreEntity):
                 self.hass, self.sensor_entity_id, self._async_sensor_changed))
         if self._hvac_mode == HVACMode.HEAT:
             self.async_on_remove(
-                async_track_state_change_event(
-                    self.hass, self.heaters_entity_ids, self._async_switch_changed))
+                async_track_state_change_event
+                    (self.hass, self.heaters_low_entity_ids, self._async_switch_changed)
+                    (self.hass, self.heaters_high_entity_ids, self._async_switch_changed))
         elif self._hvac_mode == HVACMode.COOL:
             self.async_on_remove(
-                async_track_state_change_event(
-                    self.hass, self.coolers_entity_ids, self._async_switch_changed))
+                async_track_state_change_event
+                    (self.hass, self.coolers_high_entity_ids, self._async_switch_changed)
+                    (self.hass, self.coolers_low_entity_ids, self._async_switch_changed))
         self.async_on_remove(
-            async_track_state_change_event(
-                self.hass, self.target_entity_id, self._async_target_changed))
+            async_track_state_change_event
+                (self.hass, self.target_entity_id, self._async_target_changed)
+                (self.hass, self.target_entity_id, self._async_target_changed))
         if self._related_climate is not None:
             for _related_entity in self._related_climate:
                 self.async_on_remove(
@@ -192,19 +210,32 @@ class ProgrammableThermostat(ClimateEntity, RestoreEntity):
         _LOGGER.info("climate.%s old state: %s", self._name, old_state)
         if old_state is not None:
             # If we have no initial temperature, restore
-            if self._target_temp is None:
+            if self._target_temp_high is None:
                 # If we have a previously saved temperature
-                if old_state.attributes.get(ATTR_TEMPERATURE) is None:
-                    target_entity_state = self._getStateSafe(self.target_entity_id)
+                if old_state.attributes.get(ATTR_TARGET_TEMP_HIGH) is None:
+                    target_entity_state = self._getStateSafe(self.target_temp_high_entity_id)
                     if target_entity_state is not None:
-                        self._target_temp = float(target_entity_state)
+                        self._target_temp_high = float(target_temp_high_entity_state)
                     else:
-                        self._target_temp = float((self._min_temp + self._max_temp)/2)
+                        self._target_temp_high = float((self._min_temp + self._max_temp)/2)
                     _LOGGER.warning("climate.%s - Undefined target temperature,"
-                                    "falling back to %s", self._name , self._target_temp)
+                                    "falling back to %s", self._name , self._target_temp_high)
                 else:
-                    self._target_temp = float(
-                        old_state.attributes[ATTR_TEMPERATURE])
+                    self._target_temp_high = float(
+                        old_state.attributes[ATTR_TARGET_TEMP_HIGH])
+            if self._target_temp_low is None:
+                # If we have a previously saved temperature
+                if old_state.attributes.get(ATTR_TARGET_TEMP_LOW) is None:
+                    target_entity_state = self._getStateSafe(self.target_temp_low_entity_id)
+                    if target_entity_state is not None:
+                        self._target_temp_low = float(target_temp_low_entity_state)
+                    else:
+                        self._target_temp_low = float((self._min_temp + self._max_temp)/2)
+                    _LOGGER.warning("climate.%s - Undefined target temperature,"
+                                    "falling back to %s", self._name , self._target_temp_low)
+                else:
+                    self._target_temp_low = float(
+                        old_state.attributes[ATTR_TARGET_TEMP_LOW])
             if (self._initial_hvac_mode is None and
                     old_state.state is not None):
                 self._hvac_mode = \
@@ -213,10 +244,14 @@ class ProgrammableThermostat(ClimateEntity, RestoreEntity):
 
         else:
             # No previous state, try and restore defaults
-            if self._target_temp is None:
-                self._target_temp = float((self._min_temp + self._max_temp)/2)
+            if self._target_temp_high is None:
+                self._target_temp_high = float((self._min_temp + self._max_temp)/2)
             _LOGGER.warning("climate.%s - No previously saved temperature, setting to %s", self._name,
                             self._target_temp)
+            if self._target_temp_low is None:
+                self._target_temp_low = float((self._min_temp + self._max_temp)/2)
+            _LOGGER.warning("climate.%s - No previously saved temperature, setting to %s", self._name,
+                            self._target_temp_low)
 
         # Set default state to off
         if not self._hvac_mode:

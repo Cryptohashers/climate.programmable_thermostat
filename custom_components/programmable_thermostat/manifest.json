@@ -1,8 +1,8 @@
 {
-  "domain": "programmable_thermostat",
-  "name": "Programmable Thermostat",
-  "documentation": "https://github.com/custom-components/climate.programmable_thermostat",
-  "issue_tracker": "https://github.com/custom-components/climate.programmable_thermostat/issues",
+  "domain": "programmable_thermostat_v2",
+  "name": "Programmable Thermostat V2",
+  "documentation": "",
+  "issue_tracker": "",
   "dependencies": [
     "sensor",
     "switch"

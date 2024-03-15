@@ -23,25 +23,32 @@ from .helpers import dict_to_string
 
 _LOGGER = logging.getLogger(__name__)
 
-CONF_HEATER = 'heater'
-CONF_COOLER = 'cooler'
+CONF_HEATER_HIGH = 'heater_high'
+CONF_HEATER_LOW = 'heater_low'
+CONF_COOLER_HIGH = 'cooler_high'
+CONF_COOLER_LOW = 'cooler_low'
 CONF_SENSOR = 'actual_temp_sensor'
 CONF_MIN_TEMP = 'min_temp'
 CONF_MAX_TEMP = 'max_temp'
-CONF_TARGET = 'target_temp_sensor'
+CONF_TARGET_HIGH = 'target_temp_sensor_high'
+CONF_TARGET_LOW = 'target_temp_sensor_low'
 CONF_TOLERANCE = 'tolerance'
 CONF_INITIAL_HVAC_MODE = 'initial_hvac_mode'
 CONF_RELATED_CLIMATE = 'related_climate'
 CONF_HVAC_OPTIONS = 'hvac_options'
 CONF_AUTO_MODE = 'auto_mode'
 CONF_MIN_CYCLE_DURATION = 'min_cycle_duration'
-SUPPORT_FLAGS = (ClimateEntityFeature.TARGET_TEMPERATURE)
+SUPPORT_FLAGS = (ClimateEntityFeature.TARGET_TEMP_LOW)
+SUPPORT_FLAGS = (ClimateEntityFeature.TARGET_TEMP_HIGH)
 
 CLIMATE_SCHEMA = {
-    vol.Optional(CONF_HEATER): cv.entity_ids,
-    vol.Optional(CONF_COOLER): cv.entity_ids,
+    vol.Optional(CONF_HEATER_HIGH): cv.entity_ids,
+    vol.Optional(CONF_HEATER_LOW): cv.entity_ids,
+    vol.Optional(CONF_COOLER_HIGH): cv.entity_ids,
+    vol.Optional(CONF_COOLER_LOW): cv.entity_ids,
     vol.Required(CONF_SENSOR): cv.entity_id,
-    vol.Required(CONF_TARGET): cv.entity_id,
+    vol.Required(CONF_TARGET_HIGH): cv.entity_id,
+    vol.Required(CONF_TARGET_LOW): cv.entity_id,
     vol.Optional(CONF_MAX_TEMP, default=DEFAULT_MAX_TEMP): vol.Coerce(float),
     vol.Optional(CONF_MIN_TEMP, default=DEFAULT_MIN_TEMP): vol.Coerce(float),
     vol.Optional(CONF_NAME, default=DEFAULT_NAME): cv.string,
@@ -57,10 +64,13 @@ def get_config_flow_schema(config: dict = {}, config_flow_step: int = 0) -> dict
     if not config:
         config = {
             CONF_NAME: DEFAULT_NAME,
-            CONF_HEATER: "",
-            CONF_COOLER: "",
+            CONF_HEATER_HIGH: "",
+            CONF_HEATER_LOW: "",
+            CONF_COOLER_HIGH: "",
+            CONF_COOLER_LOW: "",
             CONF_SENSOR: "",
-            CONF_TARGET: "",
+            CONF_TARGET_HIGH: "",
+            CONF_TARGET_LOW: "",
             CONF_MAX_TEMP: DEFAULT_MAX_TEMP,
             CONF_MIN_TEMP: DEFAULT_MIN_TEMP,
             CONF_TOLERANCE: DEFAULT_TOLERANCE,
@@ -73,19 +83,25 @@ def get_config_flow_schema(config: dict = {}, config_flow_step: int = 0) -> dict
     if config_flow_step==1:
         return {
             vol.Optional(CONF_NAME, default=config.get(CONF_NAME)): str,
-            vol.Optional(CONF_HEATER, default=config.get(CONF_HEATER)): str,
-            vol.Optional(CONF_COOLER, default=config.get(CONF_COOLER)): str,
+            vol.Optional(CONF_HEATER_HIGH, default=config.get(CONF_HEATER_HIGH)): str,
+            vol.Optional(CONF_HEATER_LOW, default=config.get(CONF_HEATER_LOW)): str,
+            vol.Optional(CONF_COOLER_HIGH, default=config.get(CONF_COOLER_HIGH)): str,
+            vol.Optional(CONF_COOLER_LOW, default=config.get(CONF_COOLER_LOW)): str,
             vol.Required(CONF_SENSOR, default=config.get(CONF_SENSOR)): str,
-            vol.Required(CONF_TARGET, default=config.get(CONF_TARGET)): str
+            vol.Required(CONF_TARGET_HIGH, default=config.get(CONF_TARGET_HIGH)): str,
+            vol.Required(CONF_TARGET_LOW, default=config.get(CONF_TARGET_LOW)): str
         }
     elif config_flow_step==4:
         #identical to step 1 but without NAME (better to not change it since it will break configuration)
         #this is used for options flow only
         return {
-            vol.Optional(CONF_HEATER, default=config.get(CONF_HEATER)): str,
-            vol.Optional(CONF_COOLER, default=config.get(CONF_COOLER)): str,
+            vol.Optional(CONF_HEATER_HIGH, default=config.get(CONF_HEATER_HIGH)): str,
+            vol.Optional(CONF_HEATER_LOW, default=config.get(CONF_HEATER_LOW)): str,
+            vol.Optional(CONF_COOLER_HIGH, default=config.get(CONF_COOLER_HIGH)): str,
+            vol.Optional(CONF_COOLER_LOW, default=config.get(CONF_COOLER_LOW)): str,
             vol.Required(CONF_SENSOR, default=config.get(CONF_SENSOR)): str,
-            vol.Required(CONF_TARGET, default=config.get(CONF_TARGET)): str
+            vol.Required(CONF_TARGET_HIGH, default=config.get(CONF_TARGET_HIGH)): str,
+            vol.Required(CONF_TARGET_LOW, default=config.get(CONF_TARGET_LOW)): str
         }
     elif config_flow_step==2:
         return {
