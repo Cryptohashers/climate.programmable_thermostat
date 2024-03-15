@@ -13,8 +13,8 @@ from homeassistant.components.climate import (
     )
 from homeassistant.const import (
     ATTR_ENTITY_ID,
-    ATTR_TARGET_TEMP_HIGH,
-    ATTR_TARGET_TEMP_LOW,
+    ATTR_TARGET_TEMP_HEAT,
+    ATTR_TARGET_TEMP_AC,
     ATTR_HVAC_ACTION,
     CONF_NAME,
     EVENT_HOMEASSISTANT_START,
@@ -38,8 +38,10 @@ from .const import (
     VERSION,
     DOMAIN,
     PLATFORM,
-    ATTR_HEATER_IDS,
-    ATTR_COOLER_IDS,
+    ATTR_HEATER_HIGH_IDS,
+    ATTR_HEATER_LOW_IDS,
+    ATTR_COOLER_HIGH_IDS,
+    ATTR_COOLER_LOW_IDS,
     ATTR_SENSOR_ID
 )
 from .config_schema import(
@@ -51,8 +53,8 @@ from .config_schema import(
     CONF_SENSOR,
     CONF_MIN_TEMP,
     CONF_MAX_TEMP,
-    CONF_TARGET_HIGH,
-    CONF_TARGET_LOW,
+    CONF_TARGET_HEAT,
+    CONF_TARGET_AC,
     CONF_TOLERANCE,
     CONF_INITIAL_HVAC_MODE,
     CONF_RELATED_CLIMATE,
@@ -107,8 +109,8 @@ class ProgrammableThermostat(ClimateEntity, RestoreEntity):
         self._min_temp = config.get(CONF_MIN_TEMP)
         self._max_temp = config.get(CONF_MAX_TEMP)
         self._initial_hvac_mode = config.get(CONF_INITIAL_HVAC_MODE)
-        self.target_temp_high_entity_id = config.get(CONF_TARGET_HIGH)
-        self.target_temp_low_entity_id = config.get(CONF_TARGET_LOW)
+        self.target_temp_heat_entity_id = config.get(CONF_TARGET_HEAT)
+        self.target_temp_ac_entity_id = config.get(CONF_TARGET_AC)
         self._unit = hass.config.units.temperature_unit
         self._related_climate = self._getEntityList(config.get(CONF_RELATED_CLIMATE))
         self._hvac_options = config.get(CONF_HVAC_OPTIONS)
@@ -117,11 +119,11 @@ class ProgrammableThermostat(ClimateEntity, RestoreEntity):
         self.min_cycle_duration = config.get(CONF_MIN_CYCLE_DURATION)
         if type(self.min_cycle_duration) == type({}):
             self.min_cycle_duration = dict_to_timedelta(self.min_cycle_duration)
-        self._target_temp_high = self._getFloat(self._getStateSafe(self.target_temp_high_entity_id), None)
-        self._target_temp_low = self._getFloat(self._getStateSafe(self.target_temp_low_entity_id), None)
-        self._restore_high_temp = self._target_temp_high
-        self._restore_low_temp = self._target_temp_low
-        self._cur_temp = self._getFloat(self._getStateSafe(self.sensor_entity_id), self._target_temp_high)
+        self._target_temp_heat = self._getFloat(self._getStateSafe(self.target_temp_heat_entity_id), None)
+        self._target_temp_ac = self._getFloat(self._getStateSafe(self.target_temp_ac_entity_id), None)
+        self._restore_heat_temp = self._target_temp_heat
+        self._restore_ac_temp = self._target_temp_ac
+        self._cur_temp = self._getFloat(self._getStateSafe(self.sensor_entity_id), self._target_temp_heat)
         self._active = False
         self._temp_lock = asyncio.Lock()
         self._hvac_action = HVACAction.OFF
@@ -182,8 +184,8 @@ class ProgrammableThermostat(ClimateEntity, RestoreEntity):
                     (self.hass, self.coolers_low_entity_ids, self._async_switch_changed))
         self.async_on_remove(
             async_track_state_change_event
-                (self.hass, self.target_entity_id, self._async_target_changed)
-                (self.hass, self.target_entity_id, self._async_target_changed))
+                (self.hass, self.target_temp_heat_entity_id, self._async_target_heat_changed)
+                (self.hass, self.target_temp_ac_entity_id, self._async_target_ac_changed))
         if self._related_climate is not None:
             for _related_entity in self._related_climate:
                 self.async_on_remove(
@@ -196,12 +198,16 @@ class ProgrammableThermostat(ClimateEntity, RestoreEntity):
             sensor_state = self._getStateSafe(self.sensor_entity_id)
             if sensor_state and sensor_state != STATE_UNKNOWN:
                 self._async_update_temp(sensor_state)
-            target_state = self._getStateSafe(self.target_entity_id)
-            if target_state and \
-               target_state != STATE_UNKNOWN and \
+            target_temp_heat_state = self._getStateSafe(self.target_temp_heat_entity_id)
+            if target_temp_heat_state and \
+               target_temp_heat_state != STATE_UNKNOWN and \
                self._hvac_mode != HVACMode.HEAT_COOL:
-                self._async_update_program_temp(target_state)
-
+                self._async_update_program_temp(target_temp_heat_state)
+            target_temp_ac_state = self._getStateSafe(self.target_temp_ac_entity_id)
+            if target_temp_ac_state and \
+               target_temp_ac_state != STATE_UNKNOWN and \
+               self._hvac_mode != HVACMode.HEAT_COOL:
+                self._async_update_program_temp(target_temp_ac_state)
         self.hass.bus.async_listen_once(
             EVENT_HOMEASSISTANT_START, _async_startup)
 
@@ -210,32 +216,32 @@ class ProgrammableThermostat(ClimateEntity, RestoreEntity):
         _LOGGER.info("climate.%s old state: %s", self._name, old_state)
         if old_state is not None:
             # If we have no initial temperature, restore
-            if self._target_temp_high is None:
+            if self._target_temp_heat is None:
                 # If we have a previously saved temperature
-                if old_state.attributes.get(ATTR_TARGET_TEMP_HIGH) is None:
-                    target_entity_state = self._getStateSafe(self.target_temp_high_entity_id)
-                    if target_entity_state is not None:
-                        self._target_temp_high = float(target_temp_high_entity_state)
+                if old_state.attributes.get(ATTR_TARGET_TEMP_HEAT) is None:
+                    target_temp_heat_entity_state = self._getStateSafe(self.target_temp_heat_entity_id)
+                    if target_temp_heat_entity_state is not None:
+                        self._target_temp_heat = float(target_temp_heat_entity_state)
                     else:
-                        self._target_temp_high = float((self._min_temp + self._max_temp)/2)
-                    _LOGGER.warning("climate.%s - Undefined target temperature,"
-                                    "falling back to %s", self._name , self._target_temp_high)
+                        self._target_temp_heat = float((self._min_temp + self._max_temp)/2)
+                    _LOGGER.warning("climate.%s - Undefined high target temperature,"
+                                    "falling back to %s", self._name , self._target_temp_heat)
                 else:
-                    self._target_temp_high = float(
-                        old_state.attributes[ATTR_TARGET_TEMP_HIGH])
-            if self._target_temp_low is None:
+                    self._target_temp_heat = float(
+                        old_state.attributes[ATTR_TARGET_TEMP_HEAT])
+            if self._target_temp_ac is None:
                 # If we have a previously saved temperature
-                if old_state.attributes.get(ATTR_TARGET_TEMP_LOW) is None:
-                    target_entity_state = self._getStateSafe(self.target_temp_low_entity_id)
-                    if target_entity_state is not None:
-                        self._target_temp_low = float(target_temp_low_entity_state)
+                if old_state.attributes.get(ATTR_TARGET_TEMP_AC) is None:
+                    target_temp_ac_entity_state = self._getStateSafe(self.target_temp_ac_entity_id)
+                    if target_temp_ac_entity_state is not None:
+                        self._target_temp_ac = float(target_temp_ac_entity_state)
                     else:
-                        self._target_temp_low = float((self._min_temp + self._max_temp)/2)
-                    _LOGGER.warning("climate.%s - Undefined target temperature,"
-                                    "falling back to %s", self._name , self._target_temp_low)
+                        self._target_temp_ac = float((self._min_temp + self._max_temp)/2)
+                    _LOGGER.warning("climate.%s - Undefined low target temperature,"
+                                    "falling back to %s", self._name , self._target_temp_ac)
                 else:
-                    self._target_temp_low = float(
-                        old_state.attributes[ATTR_TARGET_TEMP_LOW])
+                    self._target_temp_ac = float(
+                        old_state.attributes[ATTR_TARGET_TEMP_AC])
             if (self._initial_hvac_mode is None and
                     old_state.state is not None):
                 self._hvac_mode = \
@@ -244,14 +250,14 @@ class ProgrammableThermostat(ClimateEntity, RestoreEntity):
 
         else:
             # No previous state, try and restore defaults
-            if self._target_temp_high is None:
-                self._target_temp_high = float((self._min_temp + self._max_temp)/2)
-            _LOGGER.warning("climate.%s - No previously saved temperature, setting to %s", self._name,
-                            self._target_temp)
-            if self._target_temp_low is None:
-                self._target_temp_low = float((self._min_temp + self._max_temp)/2)
-            _LOGGER.warning("climate.%s - No previously saved temperature, setting to %s", self._name,
-                            self._target_temp_low)
+            if self._target_temp_heat is None:
+                self._target_temp_heat = float((self._min_temp + self._max_temp)/2)
+            _LOGGER.warning("climate.%s - No previously saved high temperature, setting to %s", self._name,
+                            self._target_temp_heat)
+            if self._target_temp_ac is None:
+                self._target_temp_ac = float((self._min_temp + self._max_temp)/2)
+            _LOGGER.warning("climate.%s - No previously saved low temperature, setting to %s", self._name,
+                            self._target_temp_ac)
 
         # Set default state to off
         if not self._hvac_mode:
@@ -298,9 +304,13 @@ class ProgrammableThermostat(ClimateEntity, RestoreEntity):
 
     async def _async_turn_on(self, mode=None):
         """Turn heater toggleable device on."""
-        if mode == "heat":
-            data = {ATTR_ENTITY_ID: self.heaters_entity_ids}
-        elif mode == "cool":
+        if mode == "heat" and  fan_mode == high:
+            data = {ATTR_ENTITY_ID: self.heaters_high_entity_ids}
+        elif mode == "heat" and fan_mode == low:
+            data = {ATTR_ENTITY_ID: self.heaters_low_entity_ids}
+        elif mode == "cool" and fan_mode == low:
+            data = {ATTR_ENTITY_ID: self.coolers_entity_ids}
+        elif mode == "cool" and fan_mode == high:
             data = {ATTR_ENTITY_ID: self.coolers_entity_ids}
         else:
             _LOGGER.error("climate.%s - No type has been passed to turn_on function", self._name)
@@ -318,9 +328,13 @@ class ProgrammableThermostat(ClimateEntity, RestoreEntity):
                 if related_climate_hvac_action == HVACAction.HEATING or related_climate_hvac_action == HVACAction.COOLING:
                     _LOGGER.info("climate.%s - Master climate object action is %s, so no action taken.", self._name, related_climate_hvac_action)
                     return
-        if mode == "heat":
-            data = {ATTR_ENTITY_ID: self.heaters_entity_ids}
-        elif mode == "cool":
+                if mode == "heat" and  fan_mode == high:
+            data = {ATTR_ENTITY_ID: self.heaters_high_entity_ids}
+        elif mode == "heat" and fan_mode == low:
+            data = {ATTR_ENTITY_ID: self.heaters_low_entity_ids}
+        elif mode == "cool" and fan_mode == low:
+            data = {ATTR_ENTITY_ID: self.coolers_entity_ids}
+        elif mode == "cool" and fan_mode == high:
             data = {ATTR_ENTITY_ID: self.coolers_entity_ids}
         else:
             _LOGGER.error("climate.%s - No type has been passed to turn_off function", self._name)
@@ -348,12 +362,21 @@ class ProgrammableThermostat(ClimateEntity, RestoreEntity):
         # Ensure we update the current operation after changing the mode
         self.async_write_ha_state()
 
-    async def async_set_temperature(self, **kwargs):
-        """Set new target temperature."""
-        temperature = kwargs.get(ATTR_TEMPERATURE)
-        if temperature is None:
+    async def async_set_temperature_high(self, **kwargs):
+        """Set new target temperature heat."""
+        temperature_heat = kwargs.get(ATTR_TARGET_TEMP_HEAT)
+        if temperature_heat is None:
             return
-        self._target_temp = float(temperature)
+        self._target_temp_heat = float(temperature_heat)
+        await self.control_system_mode()
+        self.async_write_ha_state()
+
+    async def async_set_temperature_low(self, **kwargs):    
+        """Set new target temperature low."""
+        temperature_ac = kwargs.get(ATTR_TARGET_TEMP_AC)
+        if temperature_low is None:
+            return
+        self._target_temp_ac = float(temperature_ac)
         await self.control_system_mode()
         self.async_write_ha_state()
 
@@ -382,24 +405,35 @@ class ProgrammableThermostat(ClimateEntity, RestoreEntity):
         if self._cur_temp is None:
             _LOGGER.info("climate.%s - Abort _async_control_thermo as _cur_temp is None", self._name)
             return
-        if self._target_temp is None:
-            _LOGGER.info("climate.%s - Abort _async_control_thermo as _target_temp is None", self._name)
+        if self._target_temp_heat is None:
+            _LOGGER.info("climate.%s - Abort _async_control_thermo as _target_temp_heat is None", self._name)
             return
-
-        if mode == "heat":
+        if self._target_temp_ac is None:
+            _LOGGER.info("climate.%s - Abort _async_control_thermo as _target_temp_ac is None", self._name)
+            return
+        if mode == "heat" and  fan_mode == "high":
             hvac_mode = HVACMode.COOL
-            delta = self._target_temp - self._cur_temp
-            entities = self.heaters_entity_ids
-        elif mode == "cool":
+            delta_low = self._target_temp_heat - self._cur_temp
+            entities = self.heaters_high_entity_ids
+        elif mode == "heat" and fan_mode == "low":
+            hvac_mode = HVACMode.COOL
+            delta_low = self._target_temp_heat - self._cur_temp
+            entities = self.heaters_low_entity_ids
+        elif mode == "cool" and fan_mode == "high":
             hvac_mode = HVACMode.HEAT
-            delta = self._cur_temp - self._target_temp
-            entities = self.coolers_entity_ids
+            delta = self._cur_temp - self._target_temp_ac
+            entities = self.coolers_high_entity_ids
+        elif mode == "cool" and fan_mode == "low":
+            hvac_mode = HVACMode.HEAT
+            delta = self._cur_temp - self._target_temp_ac
+            entities = self.coolers_low_entity_idsw
         else:
             _LOGGER.error("climate.%s - No type has been passed to control_thermo function", self._name)
         self._check_mode_type = mode
         async with self._temp_lock:
             if not self._active and None not in (self._cur_temp,
-                                                 self._target_temp):
+                                                 self._target_temp_heat,
+                                                 self._target_temp_ac):
                 self._active = True
                 _LOGGER.debug("climate.%s - Obtained current and target temperature. "
                              "Generic thermostat active. %s, %s", self._name,
@@ -426,11 +460,11 @@ class ProgrammableThermostat(ClimateEntity, RestoreEntity):
         # This if condition is necessary to correctly manage the action for the different modes.
         _LOGGER.debug("climate.%s - mode=%s \r\ntarget=%s \r\n current=%s", self._name, mode, self._target_temp, self._cur_temp)
         if mode == "heat":
-            delta = self._target_temp - self._cur_temp
+            delta = self._target_temp_heat - self._cur_temp
             entities = self.coolers_entity_ids
             mode_2 = "cool"
         elif mode == "cool":
-            delta = self._cur_temp - self._target_temp
+            delta = self._cur_temp - self._target_temp_ac
             entities = self.heaters_entity_ids
             mode_2 = "heat"
         else:
@@ -560,23 +594,42 @@ class ProgrammableThermostat(ClimateEntity, RestoreEntity):
             _LOGGER.warning("climate.%s - Unable to update current temperature from sensor: %s", self._name, ex)
 
     @callback
-    def _async_restore_program_temp(self):
+    def _async_restore_program_temp_heat(self):
         """Update thermostat with latest state from sensor to have back automatic value."""
         try:
-            if self._restore_temp is not None:
-                self._target_temp = self._restore_temp
+            if self._restore_temp_heat is not None:
+                self._target_temp_heat = self._restore_temp_heat
             else:
-                self._target_temp = self._getFloat(self._getStateSafe(self.target_entity_id), None)
+                self._target_temp_heat = self._getFloat(self._getStateSafe(self.target_entity_id), None)
         except ValueError as ex:
             _LOGGER.warning("climate.%s - Unable to restore program temperature from sensor: %s", self._name, ex)
 
     @callback
-    def _async_update_program_temp(self, state):
+    def _async_restore_program_temp_ac(self):
+        """Update thermostat with latest state from sensor to have back automatic value."""
+        try:
+            if self._restore_temp_ac is not None:
+                self._target_temp_ac = self._restore_temp_ac
+            else:
+                self._target_temp_ac = self._getFloat(self._getStateSafe(self.target_entity_id), None)
+        except ValueError as ex:
+            _LOGGER.warning("climate.%s - Unable to restore program temperature from sensor: %s", self._name, ex)
+
+    @callback
+    def _async_update_program_temp_heat(self, state):
         """Update thermostat with latest state from sensor."""
         try:
-            self._target_temp = float(state)
+            self._target_temp_heat = float(state)
         except ValueError as ex:
-            _LOGGER.warning("climate.%s - Unable to update target temperature from sensor: %s", self._name, ex)
+            _LOGGER.warning("climate.%s - Unable to update target temperature heat from sensor: %s", self._name, ex)
+
+    @callback
+    def _async_update_program_temp_ac(self, state):
+        """Update thermostat with latest state from sensor."""
+        try:
+            self._target_temp_ac = float(state)
+        except ValueError as ex:
+            _LOGGER.warning("climate.%s - Unable to update target temperature ac from sensor: %s", self._name, ex)
 
     @property
     def should_poll(self):
@@ -602,11 +655,21 @@ class ProgrammableThermostat(ClimateEntity, RestoreEntity):
     def hvac_mode(self):
         """Return current operation."""
         return self._hvac_mode
+    
+    @property
+    def fan_mode(self):
+        """Return current fan operation."""
+        return self._fan_mode
 
     @property
-    def target_temperature(self):
+    def target_temp_heat(self):
         """Return the temperature we try to reach."""
-        return self._target_temp
+        return self._target_temp_heat
+    
+    @property
+    def target_temp_ac(self):
+        """Return the temperature we try to reach."""
+        return self._target_temp_ac
 
     @property
     def hvac_modes(self):
@@ -654,8 +717,10 @@ class ProgrammableThermostat(ClimateEntity, RestoreEntity):
         """Return entity specific state attributes to be saved. """
         attributes = {}
 
-        attributes[ATTR_HEATER_IDS] = self.heaters_entity_ids
-        attributes[ATTR_COOLER_IDS] = self.coolers_entity_ids
+        attributes[ATTR_HEATER_HIGH_IDS] = self.heaters_high_entity_ids
+        attributes[ATTR_HEATER_LOW_IDS] = self.heaters_low_entity_ids
+        attributes[ATTR_COOLER_HIGH_IDS] = self.coolers_high_entity_ids
+        attributes[ATTR_COOLER_LOW_IDS] = self.coolers_low_entity_ids
         attributes[ATTR_SENSOR_ID] = self.sensor_entity_id
 
         return attributes
