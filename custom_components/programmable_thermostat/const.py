@@ -29,10 +29,10 @@ INITIAL_HVAC_MODE_OPTIONS_OPTFLOW = ['null', HVACMode.COOL, HVACMode.HEAT, HVACM
 REGEX_STRING = r'((?P<hours>\d+?):(?=(\d+?:\d+?)))?((?P<minutes>\d+?):)?((?P<seconds>\d+?))?$'
 
 #Attributes
-ATTR_HEATER_HIGH_IDS = "heater_ids"
-ATTR_HEATER_MED_IDS = "heater_ids"
-ATTR_HEATER_LOW_IDS = "heater_ids"
-ATTR_COOLER_HIGH_IDS = "cooler_ids"
-ATTR_COOLER_MED_IDS = "cooler_ids"
-ATTR_COOLER_LOW_IDS = "cooler_ids"
+ATTR_HEATER_HIGH_IDS = "heater_high_ids"
+ATTR_HEATER_MED_IDS = "heater_med_ids"
+ATTR_HEATER_LOW_IDS = "heater_low_ids"
+ATTR_COOLER_HIGH_IDS = "cooler_high_ids"
+ATTR_COOLER_MED_IDS = "cooler_med_ids"
+ATTR_COOLER_LOW_IDS = "cooler_low_ids"
 ATTR_SENSOR_ID = "sensor_id"
