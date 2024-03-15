@@ -2,11 +2,11 @@
 from homeassistant.components.climate import HVACMode
 
 #Generic
-VERSION = '8.3'
-DOMAIN = 'programmable_thermostat'
+VERSION = '0.1'
+DOMAIN = 'pro_thermostat'
 PLATFORM = 'climate'
 ISSUE_URL = 'https://github.com/custom-components/climate.programmable_thermostat/issues'
-CONFIGFLOW_VERSION = 4
+CONFIGFLOW_VERSION = 1
 
 
 #Defaults
